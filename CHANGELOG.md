@@ -26,4 +26,4 @@ Primeira versão pública (beta), validada no projetor HY320 (Amlogic T950S, ARM
 - "Continuar assistindo" de série não avança sozinho para o próximo episódio.
 - O bitfield `watched` por episódio não é atualizado.
 
-[0.1.0-beta]: https://github.com/OWNER/stremio-lite/releases/tag/v0.1.0-beta
+[0.1.0-beta]: https://github.com/EveeOliveira/stremio-lite/releases/tag/v0.1.0-beta
