@@ -9,10 +9,10 @@ Gerados no PC com o FFmpeg e servidos na rede local por `tools/rangeserver.py` (
 como o Real-Debrid), via um addon estático de teste (`manifest.json` + `stream/movie/tt0111161.json` +
 `subtitles/movie/tt0111161.json`):
 
-| Arquivo | Vídeo | Áudio |
-|---|---|---|
-| `teste_ac3_51_longo.mkv` | H.264 1280x720 2,5 Mbps | **AC3 5.1** 448 kbps, 20 min |
-| `teste_1080p_eac3_51.mkv` | H.264 1920x1080 8 Mbps | **EAC3 5.1** 640 kbps, 10 min |
+| Arquivo                   | Vídeo                   | Áudio                         |
+| ------------------------- | ----------------------- | ----------------------------- |
+| `teste_ac3_51_longo.mkv`  | H.264 1280x720 2,5 Mbps | **AC3 5.1** 448 kbps, 20 min  |
+| `teste_1080p_eac3_51.mkv` | H.264 1920x1080 8 Mbps  | **EAC3 5.1** 640 kbps, 10 min |
 
 ## Áudio: FFmpeg → PCM → thread MIXER
 
@@ -84,26 +84,25 @@ Ao sair do player o progresso foi gravado na conta (`datastorePut` sem erro).
 
 ## Medições (script `tools/medir.sh`, CPU em % de UM núcleo)
 
-| Cenário | Stremio oficial (1.12.1) | Stremio Lite |
-|---|---|---|
-| Tamanho instalado | APK 80 MB (22 MB + split ARMv7 58 MB), libs 126 MB | **APK 3,6 MB** (3,5 MB instalado) |
-| Parado na tela inicial: RSS | 228 MB + 200 MB (`stremio_server_process`) = **428 MB** | **115 MB** |
-| Parado: PSS | 116 + 128 = **244 MB** | **33 MB** |
-| Parado: CPU | 0% | 0% |
-| Parado: MemAvailable do sistema | 1.150 MB | 1.267 MB (**+117 MB**) |
-| Tocando: RSS | ~300 MB + ~220 MB (referência da sessão anterior, player MPV) | **147 MB** (720p AC3) / **184 MB** (1080p EAC3) |
-| Tocando: PSS | — | 58 MB / 94 MB |
-| Tocando: CPU do app | **~68%** (MPV, referência da sessão anterior) | **40%** (720p AC3) / **43%** (1080p EAC3) / **46%** (stream real RD 720p EAC3) |
-| Tocando stream real RD: RSS / PSS | — | 162 MB / 72 MB |
-| Tocando: CPU dos serviços de mídia do sistema | — | 20% (codec c2, audioserver, extractor) |
-| Tocando: MemAvailable | — | 1.199 MB / 1.152 MB |
-| Áudio AC3 5.1 | ExoPlayer padrão: OFFLOAD AC3 (mudo); MPV: PCM float 6ch no MIXER | **PCM 16 bits estéreo no MIXER** |
+| Cenário                                       | Stremio oficial (1.12.1)                                          | Stremio Lite                                                                   |
+| --------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Tamanho instalado                             | APK 80 MB (22 MB + split ARMv7 58 MB), libs 126 MB                | **APK 3,6 MB** (3,5 MB instalado)                                              |
+| Parado na tela inicial: RSS                   | 228 MB + 200 MB (`stremio_server_process`) = **428 MB**           | **115 MB**                                                                     |
+| Parado: PSS                                   | 116 + 128 = **244 MB**                                            | **33 MB**                                                                      |
+| Parado: CPU                                   | 0%                                                                | 0%                                                                             |
+| Parado: MemAvailable do sistema               | 1.150 MB                                                          | 1.267 MB (**+117 MB**)                                                         |
+| Tocando: RSS                                  | ~300 MB + ~220 MB (referência da sessão anterior, player MPV)     | **147 MB** (720p AC3) / **184 MB** (1080p EAC3)                                |
+| Tocando: PSS                                  | —                                                                 | 58 MB / 94 MB                                                                  |
+| Tocando: CPU do app                           | **~68%** (MPV, referência da sessão anterior)                     | **40%** (720p AC3) / **43%** (1080p EAC3) / **46%** (stream real RD 720p EAC3) |
+| Tocando stream real RD: RSS / PSS             | —                                                                 | 162 MB / 72 MB                                                                 |
+| Tocando: CPU dos serviços de mídia do sistema | —                                                                 | 20% (codec c2, audioserver, extractor)                                         |
+| Tocando: MemAvailable                         | —                                                                 | 1.199 MB / 1.152 MB                                                            |
+| Áudio AC3 5.1                                 | ExoPlayer padrão: OFFLOAD AC3 (mudo); MPV: PCM float 6ch no MIXER | **PCM 16 bits estéreo no MIXER**                                               |
 
 Observações honestas:
 
-- Os números do Stremio oficial **tocando** são os da sessão anterior (outro arquivo, stream real do Real-Debrid
-  pelo MPV). Não toquei nada no Stremio oficial para não mexer na sua conta (biblioteca e "Continuar assistindo").
-  Os números **parado** foram medidos agora, do mesmo jeito para os dois apps.
+- Os números do Stremio oficial **tocando** são de uma sessão de teste anterior (outro arquivo, stream real do Real-Debrid
+  pelo MPV).
 - O Lite foi medido com os arquivos de teste da rede local e também com um stream real do Real-Debrid
   (720p WEB, EAC3 5.1). Um 1080p remux de 20–40 Mbps deve subir a RAM até o teto do buffer (64 MB), mas não a
   CPU de áudio.
