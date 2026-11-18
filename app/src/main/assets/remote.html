@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Stremio Lite</title>
+<style>
+:root { --bg:#101014; --panel:#1c1c24; --press:#2f2850; --accent:#7b5bf5; --text:#ededf2; --muted:#a0a0b0; --bad:#ff8a80 }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font:16px system-ui,sans-serif }
+main { max-width:420px; min-height:100%; margin:auto; padding:max(16px,env(safe-area-inset-top)) 16px 20px; display:flex; flex-direction:column; gap:18px }
+h1 { font-size:18px; margin:0 }
+form { display:flex; gap:8px }
+input { flex:1; min-width:0; height:52px; padding:0 14px; border:1px solid #33333f; border-radius:10px; background:var(--panel); color:var(--text); font-size:17px }
+input:focus { outline:2px solid var(--accent); border-color:transparent }
+button { border:0; border-radius:12px; background:var(--panel); color:var(--text); font:inherit; touch-action:manipulation; user-select:none; -webkit-user-select:none }
+button:active,button.on { background:var(--press) }
+form button { width:84px; background:var(--accent); font-weight:600 }
+.pad { width:min(100%,320px); aspect-ratio:1; margin:auto; display:grid; grid-template:repeat(3,1fr)/repeat(3,1fr); gap:8px }
+.pad button { font-size:26px }
+.pad .ok { background:var(--accent); border-radius:50%; font-size:18px; font-weight:700 }
+.up{grid-area:1/2}.left{grid-area:2/1}.ok{grid-area:2/2}.right{grid-area:2/3}.down{grid-area:3/2}
+.row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px }
+.row button { height:56px; font-size:15px }
+#msg { min-height:20px; margin:0; color:var(--muted); font-size:14px; text-align:center }
+#msg.bad { color:var(--bad) }
+[hidden] { display:none !important }
+</style>
+</head>
+<body>
+<main id="pair" hidden>
+  <h1>Parear com a TV</h1>
+  <p style="margin:0;color:var(--muted)">Digite o código que aparece em “Controle no celular”.</p>
+  <form id="pairForm">
+    <input id="code" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" aria-label="Código" required>
+    <button>Entrar</button>
+  </form>
+  <p id="pairMsg" class="bad" style="margin:0"></p>
+</main>
+<main id="remote" hidden>
+  <form id="search" role="search">
+    <input id="q" type="search" enterkeyhint="search" autocomplete="off" minlength="2" maxlength="100" placeholder="Buscar série ou filme" aria-label="Buscar série ou filme" required>
+    <button>Buscar</button>
+  </form>
+  <p id="msg" role="status"></p>
+  <div class="pad">
+    <button class="up" data-key="up" data-repeat aria-label="Cima">▲</button>
+    <button class="left" data-key="left" data-repeat aria-label="Esquerda">◀</button>
+    <button class="ok" data-key="ok">OK</button>
+    <button class="right" data-key="right" data-repeat aria-label="Direita">▶</button>
+    <button class="down" data-key="down" data-repeat aria-label="Baixo">▼</button>
+  </div>
+  <div class="row">
+    <button data-key="back">Voltar</button>
+    <button data-key="rewind" data-repeat>−10 s</button>
+    <button data-key="playpause" aria-label="Tocar ou pausar">⏯</button>
+    <button data-key="forward" data-repeat>+10 s</button>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get() { try { return localStorage.getItem('code') || '' } catch { return '' } },
+  set(v) { try { v ? localStorage.setItem('code', v) : localStorage.removeItem('code') } catch {} }
+};
+let code = store.get();
+const fromLink = /^#c=(\d{6})$/.exec(location.hash);
+if (fromLink) { code = fromLink[1]; store.set(code); history.replaceState(null, '', location.pathname) }
+
+function show(paired) { $('pair').hidden = paired; $('remote').hidden = !paired }
+function say(text, bad) { $('msg').textContent = text; $('msg').className = bad ? 'bad' : '' }
+
+async function call(path, body) {
+  const r = await fetch('/api/' + path, { method:'POST', headers:{ 'X-Code':code }, body:body || '' });
+  if (r.status === 401) { code = ''; store.set(''); show(false); $('pairMsg').textContent = 'Código incorreto ou trocado na TV.' }
+  else if (r.status === 429) { say('Muitas tentativas. Aguarde um minuto.', true); $('pairMsg').textContent = 'Muitas tentativas. Aguarde um minuto.' }
+  else if (r.status === 409) say('Abra o Stremio Lite na TV.', true);
+  return r.ok;
+}
+
+// Envia na ordem em que as teclas foram tocadas.
+let queue = Promise.resolve();
+function send(key) {
+  if (navigator.vibrate) navigator.vibrate(10);
+  queue = queue.then(() => call('key', key)).then(ok => { if (ok) say('') })
+    .catch(() => say('Sem conexão com a TV.', true));
+}
+
+document.querySelectorAll('[data-key]').forEach(b => {
+  let delay, timer;
+  const stop = () => { clearTimeout(delay); clearInterval(timer); b.classList.remove('on') };
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    b.classList.add('on');
+    send(b.dataset.key);
+    if ('repeat' in b.dataset) delay = setTimeout(() => { timer = setInterval(() => send(b.dataset.key), 180) }, 450);
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(n => b.addEventListener(n, stop));
+  b.addEventListener('click', e => { if (e.detail === 0) send(b.dataset.key) });
+  b.addEventListener('contextmenu', e => e.preventDefault());
+});
+
+$('search').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = $('q').value.trim();
+  if (q.length < 2) return;
+  $('q').blur();
+  try { if (await call('search', q)) say('Buscando “' + q + '” na TV…') }
+  catch { say('Sem conexão com a TV.', true) }
+});
+
+$('pairForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  code = $('code').value.replace(/\D/g, '');
+  $('pairMsg').textContent = '';
+  try { if (await call('check')) { store.set(code); show(true) } }
+  catch { $('pairMsg').textContent = 'Sem conexão com a TV.' }
+});
+
+if (code) call('check').then(ok => { if (ok) show(true) }).catch(() => { show(true); say('Sem conexão com a TV.', true) });
+else show(false);
+</script>
+</body>
+</html>

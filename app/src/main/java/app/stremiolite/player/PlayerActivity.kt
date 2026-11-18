@@ -57,6 +57,7 @@ class PlayerActivity : ComponentActivity() {
     private var subtitles: List<Subtitle>? = null
     private var startPos = 0L
     private var lastSavedPos = -1L
+    private var visible = false
     private val handler = Handler(Looper.getMainLooper())
     private val hideOsd = Runnable { osd.visibility = View.GONE }
     private val saver = object : Runnable {
@@ -88,18 +89,21 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        visible = true
         if (url == null) return
         val i = info
         if (subtitles == null && i != null) {
             showOsd("Carregando legendas…", 0)
             lifecycleScope.launch {
                 subtitles = withTimeoutOrNull(5000) { fetchSubtitles(i) } ?: emptyList()
-                if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) startPlayer()
+                // Sem addon de legendas isto roda ainda dentro do onStart, antes do lifecycle marcar STARTED.
+                if (!isFinishing && visible) startPlayer()
             }
         } else startPlayer()
     }
 
     override fun onStop() {
+        visible = false
         saveProgress()
         handler.removeCallbacks(saver)
         player?.let { startPos = it.currentPosition; it.release() }
@@ -175,7 +179,7 @@ class PlayerActivity : ComponentActivity() {
                 showOsd("Erro: ${error.errorCodeName}\n${error.cause?.message ?: error.message}", 0)
             }
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) { saveProgress(); finish() }
+                if (state == Player.STATE_ENDED) { saveProgress(); Repo.endedVideoId = info?.videoId; finish() }
             }
             private var cuesLogged = 0
             override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {

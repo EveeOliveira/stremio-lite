@@ -11,8 +11,8 @@ android {
         applicationId = "app.stremiolite"
         minSdk = 28
         targetSdk = 33
-        versionCode = 1
-        versionName = "0.1.0-beta"
+        versionCode = 2
+        versionName = "0.2.0-beta"
         // O HY320 (Amlogic T950S) so roda 32 bits.
         ndk { abiFilters += listOf("armeabi-v7a") }
     }
@@ -23,6 +23,8 @@ android {
     }
 
     buildTypes {
+        // Instala ao lado do app normal, com dados separados: testar nao mexe na conta.
+        debug { applicationIdSuffix = ".dev" }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -52,9 +54,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-base:2.7.0")
+    // So o gerador de QR code do controle pelo celular (o R8 remove o resto).
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     // Build pronta da extensao decoder-ffmpeg do Media3 (inclui .so armeabi-v7a)
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+2")
+
+    testImplementation("junit:junit:4.13.2")
 }

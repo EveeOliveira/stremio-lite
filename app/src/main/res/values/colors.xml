@@ -5,4 +5,7 @@
     <color name="text">#FFEDEDF2</color>
     <color name="text2">#FFA0A0B0</color>
     <color name="ok">#FF3FBF6F</color>
+    <color name="watched">#FF6FD79A</color>
+    <color name="watched_bg">#FF17352A</color>
+    <color name="in_progress">#FFB9A8FF</color>
 </resources>

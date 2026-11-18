@@ -28,6 +28,7 @@
         <activity android:name=".ui.SearchActivity" android:windowSoftInputMode="stateVisible|adjustResize" />
         <activity android:name=".ui.DetailActivity" />
         <activity android:name=".ui.StreamsActivity" />
+        <activity android:name=".ui.RemoteActivity" />
         <activity android:name=".ui.SettingsActivity" android:windowSoftInputMode="stateHidden|adjustResize" />
         <activity
             android:name=".player.PlayerActivity"

@@ -26,16 +26,17 @@ class HomeActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_home)
         status = findViewById(R.id.status)
-        adapter = RowsAdapter { openDetail(it) }
+        adapter = RowsAdapter { if (it.resume) openResume(it) else openDetail(it) }
         findViewById<RecyclerView>(R.id.rows).apply { tvSetup(); setItemViewCacheSize(4); adapter = this@HomeActivity.adapter }
         findViewById<TextView>(R.id.btnSearch).setOnClickListener { startActivity(Intent(this, SearchActivity::class.java)) }
         findViewById<TextView>(R.id.btnSettings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
-        if (Repo.loggedIn) lifecycleScope.launch { Repo.syncLibrary(); refreshContinue() }
+        findViewById<TextView>(R.id.btnRemote).setOnClickListener { startActivity(Intent(this, RemoteActivity::class.java)) }
     }
 
     override fun onResume() {
         super.onResume()
         refreshContinue()
+        lifecycleScope.launch { if (Repo.syncIfStale()) refreshContinue() }
         // recarrega catalogos se a conta/addons mudaram
         val key = "${Repo.authKey}|${Repo.localAddonUrls}"
         if (key != loadedFor) { loadedFor = key; loadCatalogs() }

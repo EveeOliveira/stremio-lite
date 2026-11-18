@@ -26,6 +26,7 @@ class StreamsActivity : ComponentActivity() {
     private lateinit var list: RecyclerView
     private var userMoved = false
     private var bestIndex = -1
+    private var usedBefore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,15 +69,26 @@ class StreamsActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (Repo.endedVideoId == intent.getStringExtra("videoId")) { Repo.endedVideoId = null; finish() }
+    }
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         if (event.action == android.view.KeyEvent.ACTION_DOWN && streams.isNotEmpty()) userMoved = true
         return super.dispatchKeyEvent(event)
     }
 
     private fun refresh() {
-        // melhor: 720p com debrid em cache (RD+), depois qualquer 720p, depois a primeira
-        bestIndex = streams.indexOfFirst { it.info.quality == "720p" && it.info.debrid?.endsWith("+") == true }
-            .takeIf { it >= 0 } ?: streams.indexOfFirst { it.info.quality == "720p" }.takeIf { it >= 0 } ?: 0
+        // melhor: a fonte ja usada neste video; depois a qualidade escolhida por ultimo (padrao 720p),
+        // com debrid em cache (RD+) na frente; por fim a primeira
+        val (sourceKey, quality) = Repo.preferredSource(intent.getStringExtra("metaId").orEmpty(), intent.getStringExtra("videoId").orEmpty())
+        val same = sourceKey?.let { k -> streams.indexOfFirst { it.sourceKey == k } } ?: -1
+        usedBefore = same >= 0
+        fun cached(q: String) = streams.indexOfFirst { it.info.quality == q && it.info.debrid?.endsWith("+") == true }
+        fun any(q: String) = streams.indexOfFirst { it.info.quality == q }
+        val wanted = listOfNotNull(quality, "720p").distinct()
+        bestIndex = (listOf(same) + wanted.flatMap { listOf(cached(it), any(it)) }).firstOrNull { it >= 0 } ?: 0
         adapter.items = streams.toList()
         if (!userMoved && streams.isNotEmpty()) {
             (list.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(bestIndex, 0)
@@ -103,7 +115,7 @@ class StreamsActivity : ComponentActivity() {
                 layoutParams = LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) }
             })
         }
-        if (pos == bestIndex) badge("★ recomendado", getColor(R.color.ok))
+        if (pos == bestIndex) badge(if (usedBefore) "★ fonte anterior" else "★ recomendado", getColor(R.color.ok))
         badge(s.info.debrid, if (s.info.debrid?.endsWith("+") == true) getColor(R.color.ok) else Color.WHITE)
         badge(s.info.size)
         badge(s.info.audio?.let { "🔊 $it" })
@@ -112,6 +124,7 @@ class StreamsActivity : ComponentActivity() {
     }
 
     private fun play(s: Stream) {
+        Repo.rememberSource(intent.getStringExtra("metaId").orEmpty(), intent.getStringExtra("videoId").orEmpty(), s.sourceKey, s.info.quality)
         startActivity(Intent(this, PlayerActivity::class.java)
             .putExtra(PlayerActivity.EXTRA_URL, s.url)
             .putExtra(PlayerActivity.EXTRA_HEADERS, HashMap(s.headers))

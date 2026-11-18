@@ -8,6 +8,8 @@
             android:text="@string/app_name" android:textSize="22sp" android:textStyle="bold" />
         <TextView android:id="@+id/btnSearch" style="@style/Btn" android:layout_width="wrap_content"
             android:layout_height="wrap_content" android:nextFocusLeft="@id/btnSearch" android:nextFocusUp="@id/btnSearch" android:text="Buscar" />
+        <TextView android:id="@+id/btnRemote" style="@style/Btn" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginStart="10dp" android:nextFocusUp="@id/btnRemote" android:text="Controle no celular" />
         <TextView android:id="@+id/btnSettings" style="@style/Btn" android:layout_width="wrap_content"
             android:layout_height="wrap_content" android:layout_marginStart="10dp" android:nextFocusRight="@id/btnSettings" android:nextFocusUp="@id/btnSettings" android:text="Conta e addons" />
     </LinearLayout>

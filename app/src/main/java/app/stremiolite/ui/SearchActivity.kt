@@ -1,6 +1,8 @@
 package app.stremiolite.ui
 
+import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView
@@ -16,6 +18,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 class SearchActivity : ComponentActivity() {
+    companion object { const val EXTRA_QUERY = "query" }
+
     private lateinit var adapter: RowsAdapter
     private lateinit var status: TextView
     private lateinit var query: EditText
@@ -31,6 +35,23 @@ class SearchActivity : ComponentActivity() {
         findViewById<TextView>(R.id.btnGo).setOnClickListener { search() }
         query.onConfirm { search() }
         query.requestFocus()
+        handleRemoteQuery(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleRemoteQuery(intent)
+    }
+
+    /** Busca digitada no celular: nao abre o teclado da TV. */
+    private fun handleRemoteQuery(i: Intent) {
+        val q = i.getStringExtra(EXTRA_QUERY) ?: return
+        i.removeExtra(EXTRA_QUERY)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        query.setText(q)
+        query.setSelection(q.length)
+        search()
     }
 
     private fun search() {

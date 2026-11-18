@@ -9,6 +9,7 @@ import app.stremiolite.addon.Addon
 import app.stremiolite.addon.AddonClient
 import app.stremiolite.addon.Manifest
 import app.stremiolite.addon.MetaPreview
+import app.stremiolite.addon.Video
 import app.stremiolite.addon.objects
 import app.stremiolite.addon.str
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +37,20 @@ data class PlayInfo(
     val poster: String?,
 )
 
+/** Episodio guardado em disco (a ordem da lista e a mesma do campo `watched` do Stremio). */
+data class EpisodeRef(val id: String, val season: Int, val episode: Int, val released: String?) {
+    val label get() = "T$season E$episode"
+}
+
+/** Onde a serie deve continuar. */
+data class ResumeTarget(val episode: EpisodeRef, val offsetMs: Long, val isNext: Boolean)
+
 object Repo {
+    /** `timeOffset` que o Stremio usa para "proximo episodio, ainda nao iniciado". */
+    private const val NEXT_EPISODE_OFFSET = 1L
+    private const val SYNC_EVERY_MS = 2 * 60_000L
+    private const val MAX_SERIES = 40
+
     private lateinit var prefs: SharedPreferences
     private lateinit var dir: File
 
@@ -49,6 +63,7 @@ object Repo {
         prefs = ctx.getSharedPreferences("main", Context.MODE_PRIVATE)
         dir = ctx.filesDir
         loadLibraryFromDisk()
+        loadSeriesFromDisk()
     }
 
     // ---------- conta ----------
@@ -69,6 +84,8 @@ object Repo {
         addonsCache = null
         library.clear()
         saveLibraryToDisk()
+        series.values.forEach { it.positions.clear(); it.watched.clear() }
+        saveSeriesToDisk()
     }
 
     // ---------- addons ----------
@@ -138,6 +155,7 @@ object Repo {
     /** Puxa a biblioteca da conta e mescla com a local pelo _mtime. */
     suspend fun syncLibrary() {
         val key = authKey ?: return
+        lastSync = System.currentTimeMillis()
         val remote = runCatching { StremioApi.libraryAll(key) }
             .onFailure { Log.w(App.TAG, "datastoreGet: ${it.message}") }.getOrNull() ?: return
         val toPush = mutableListOf<JSONObject>()
@@ -152,6 +170,15 @@ object Repo {
         if (toPush.isNotEmpty()) runCatching { StremioApi.libraryPut(key, toPush) }
     }
 
+    private var lastSync = 0L
+
+    /** Traz o progresso feito em outros aparelhos sem consultar a conta a cada tela. */
+    suspend fun syncIfStale(): Boolean {
+        if (!loggedIn || System.currentTimeMillis() - lastSync < SYNC_EVERY_MS) return false
+        syncLibrary()
+        return true
+    }
+
     fun libraryItem(id: String): JSONObject? = library[id]
 
     fun continueWatching(): List<MetaPreview> = library.values.filter { it ->
@@ -164,18 +191,139 @@ object Repo {
             val dur = st.optLong("duration")
             val vid = st.str("video_id")
             val ep = vid?.split(":")?.takeIf { p -> p.size >= 3 }?.let { p -> "T${p[p.size - 2]} E${p.last()}" }
+            val isNext = st.optLong("timeOffset") <= NEXT_EPISODE_OFFSET
             MetaPreview(
                 id = it.optString("_id"), type = it.optString("type"), name = it.optString("name"),
-                poster = it.str("poster"), subtitle = ep,
-                progress = if (dur > 0) (st.optLong("timeOffset").toFloat() / dur).coerceIn(0f, 1f) else 0f,
+                poster = it.str("poster"),
+                subtitle = if (isNext) ep?.let { e -> "Próximo: $e" } else ep,
+                progress = if (dur > 0 && !isNext) (st.optLong("timeOffset").toFloat() / dur).coerceIn(0f, 1f) else 0f,
                 videoId = vid,
+                resume = true,
             )
         }
 
-    /** Posicao salva (ms) para este video, ou 0. */
+    // ---------- episodios ----------
+    private class SeriesData(
+        var videos: List<EpisodeRef> = emptyList(),
+        val positions: MutableMap<String, Long> = HashMap(),
+        val watched: MutableSet<String> = HashSet(),
+        var sourceVideo: String? = null,
+        var sourceKey: String? = null,
+        var quality: String? = null,
+        var touched: Long = 0,
+    )
+
+    private val series = HashMap<String, SeriesData>()
+    private val seriesFile get() = File(dir, "series.json")
+
+    private fun loadSeriesFromDisk() {
+        runCatching {
+            if (!seriesFile.exists()) return
+            val root = JSONObject(seriesFile.readText())
+            root.keys().forEach { id ->
+                val j = root.getJSONObject(id)
+                val videos = j.optJSONArray("v").objects().map {
+                    EpisodeRef(it.getString("i"), it.optInt("s"), it.optInt("e"), it.str("r"))
+                }
+                val positions = HashMap<String, Long>()
+                j.optJSONObject("p")?.let { p -> p.keys().forEach { k -> positions[k] = p.optLong(k) } }
+                val watched = HashSet<String>()
+                j.optJSONArray("w")?.let { w -> for (i in 0 until w.length()) watched += w.getString(i) }
+                series[id] = SeriesData(videos, positions, watched, j.str("sv"), j.str("sk"), j.str("q"), j.optLong("t"))
+            }
+        }.onFailure { Log.w(App.TAG, "series.json: ${it.message}") }
+    }
+
+    private fun saveSeriesToDisk() {
+        series.entries.sortedBy { it.value.touched }.take((series.size - MAX_SERIES).coerceAtLeast(0))
+            .map { it.key }.forEach { series.remove(it) }
+        val root = JSONObject()
+        series.forEach { (id, s) ->
+            root.put(id, JSONObject()
+                .put("v", JSONArray(s.videos.map { e ->
+                    JSONObject().put("i", e.id).put("s", e.season).put("e", e.episode).put("r", e.released ?: JSONObject.NULL)
+                }))
+                .put("p", JSONObject(s.positions as Map<*, *>))
+                .put("w", JSONArray(s.watched))
+                .put("sv", s.sourceVideo ?: JSONObject.NULL).put("sk", s.sourceKey ?: JSONObject.NULL)
+                .put("q", s.quality ?: JSONObject.NULL).put("t", s.touched))
+        }
+        val snapshot = root.toString()
+        App.scope.launch(Dispatchers.IO) { runCatching { seriesFile.writeText(snapshot) } }
+    }
+
+    private fun seriesData(metaId: String) = series.getOrPut(metaId) { SeriesData() }
+
+    /** Guarda os episodios ao abrir a serie: e o que permite achar o proximo e marcar assistidos. */
+    fun rememberVideos(metaId: String, videos: List<Video>) {
+        val s = seriesData(metaId)
+        s.videos = videos.sortedWith(compareBy({ it.season }, { it.episode }, { it.released.orEmpty() }))
+            .map { EpisodeRef(it.id, it.season, it.episode, it.released) }
+        s.touched = System.currentTimeMillis()
+        saveSeriesToDisk()
+    }
+
+    fun episode(metaId: String, videoId: String): EpisodeRef? = series[metaId]?.videos?.firstOrNull { it.id == videoId }
+
+    private fun bitfield(s: SeriesData, state: JSONObject?) =
+        WatchedBitfield.parse(state?.str("watched"), s.videos.map { it.id })
+
+    /** Episodios assistidos: os da conta mais os marcados neste aparelho. */
+    fun watchedIds(metaId: String): Set<String> {
+        val s = series[metaId] ?: return emptySet()
+        return bitfield(s, library[metaId]?.optJSONObject("state")).watchedIds() + s.watched
+    }
+
+    private fun released(e: EpisodeRef) = e.released == null || e.released <= iso()
+
+    private fun nextUnwatched(s: SeriesData, videoId: String, watched: Set<String>): EpisodeRef? {
+        val i = s.videos.indexOfFirst { it.id == videoId }
+        if (i < 0) return null
+        return s.videos.drop(i + 1).firstOrNull { it.id !in watched && released(it) }
+    }
+
+    /** Episodio que o botao "Continuar" deve abrir, ou null se a serie terminou. */
+    fun resumeTarget(metaId: String): ResumeTarget? {
+        val s = series[metaId]?.takeIf { it.videos.isNotEmpty() } ?: return null
+        val st = library[metaId]?.optJSONObject("state")
+        val watched = watchedIds(metaId)
+        val current = st?.str("video_id")?.let { id -> s.videos.firstOrNull { it.id == id } }
+        if (st != null && current != null) {
+            val offset = st.optLong("timeOffset")
+            if (offset > NEXT_EPISODE_OFFSET) return ResumeTarget(current, offset, false)
+            if (offset == NEXT_EPISODE_OFFSET) return ResumeTarget(current, 0, true)
+            if (current.id in watched || st.optInt("flaggedWatched") == 1) {
+                return nextUnwatched(s, current.id, watched)?.let { ResumeTarget(it, 0, true) }
+            }
+        }
+        return s.videos.firstOrNull { it.season > 0 && it.id !in watched && released(it) }?.let { ResumeTarget(it, 0, false) }
+    }
+
+    /** Posicao salva (ms) para este video, ou 0. Cada episodio guarda a sua. */
     fun resumePosition(metaId: String, videoId: String): Long {
-        val st = library[metaId]?.optJSONObject("state") ?: return 0
-        return if (st.optString("video_id") == videoId || (videoId == metaId && st.str("video_id") == null)) st.optLong("timeOffset") else 0
+        val st = library[metaId]?.optJSONObject("state")
+        if (st != null && (st.optString("video_id") == videoId || (videoId == metaId && st.str("video_id") == null))) {
+            return st.optLong("timeOffset").takeIf { it > NEXT_EPISODE_OFFSET } ?: 0
+        }
+        return series[metaId]?.positions?.get(videoId) ?: 0
+    }
+
+    /** Video que acabou de terminar no player: a tela de fontes fecha e volta para a serie. */
+    var endedVideoId: String? = null
+
+    fun rememberSource(metaId: String, videoId: String, sourceKey: String, quality: String?) {
+        val s = seriesData(metaId)
+        s.sourceVideo = videoId
+        s.sourceKey = sourceKey
+        s.quality = quality
+        s.touched = System.currentTimeMillis()
+        saveSeriesToDisk()
+    }
+
+    /** Fonte usada antes neste video (se houver) e a qualidade escolhida por ultimo neste titulo. */
+    fun preferredSource(metaId: String, videoId: String): Pair<String?, String?> {
+        val s = series[metaId] ?: return null to null
+        return (if (s.sourceVideo == videoId) s.sourceKey else null) to s.quality
     }
 
     private fun iso(t: Long = System.currentTimeMillis()): String =
@@ -194,15 +342,27 @@ object Repo {
 
     /**
      * Grava o progresso (local + conta). [watchedDeltaMs] = tempo assistido desde a ultima gravacao.
-     * Ao passar de 92% marca como assistido e zera o offset (sai do "Continuar assistindo").
+     * Ao passar de 92% marca o episodio como assistido e deixa a serie apontando para o proximo.
      */
     fun saveProgress(p: PlayInfo, posMs: Long, durMs: Long, watchedDeltaMs: Long) {
         if (durMs <= 0) return
         val now = iso()
+        val finished = posMs > durMs * 0.92
+        val ser = series[p.metaId]?.takeIf { s -> s.videos.any { it.id == p.videoId } }
+        if (ser != null) {
+            if (finished || posMs < 5_000) ser.positions.remove(p.videoId) else ser.positions[p.videoId] = posMs
+            ser.touched = System.currentTimeMillis()
+        }
         val item = library[p.metaId]?.let { JSONObject(it.toString()) } ?: newItem(p, now)
         val st = item.optJSONObject("state") ?: JSONObject().also { item.put("state", it) }
-        val finished = posMs > durMs * 0.92
-        val wasFinished = st.optString("video_id") == p.videoId && st.optLong("timeOffset") == 0L && st.optInt("flaggedWatched") == 1
+        val current = st.str("video_id")
+        // Abrir outro episodio por engano nao tira a serie do ponto em que estava.
+        if (ser != null && !finished && current != null && current != p.videoId && posMs < 60_000) {
+            saveSeriesToDisk()
+            return
+        }
+        val wasFinished = if (ser != null) p.videoId in watchedIds(p.metaId)
+            else current == p.videoId && st.optLong("timeOffset") == 0L && st.optInt("flaggedWatched") == 1
         st.put("lastWatched", now)
         st.put("video_id", p.videoId)
         st.put("duration", durMs)
@@ -213,6 +373,20 @@ object Repo {
             st.put("timesWatched", st.optInt("timesWatched") + 1)
             st.put("flaggedWatched", 1)
         }
+        if (finished && ser != null) {
+            ser.watched += p.videoId
+            val field = bitfield(ser, st)
+            if (field.reliable) {
+                ser.watched.forEach { field[it] = true }
+                st.put("watched", field.serialize())
+            } else Log.w(App.TAG, "campo watched nao reconhecido: mantido como esta")
+            nextUnwatched(ser, p.videoId, field.watchedIds() + ser.watched)?.let { next ->
+                st.put("video_id", next.id)
+                st.put("timeOffset", NEXT_EPISODE_OFFSET)
+                st.put("duration", 0)
+            }
+        }
+        if (ser != null) saveSeriesToDisk()
         if (item.optBoolean("removed")) item.put("temp", true)
         if (item.isNull("poster") && p.poster != null) item.put("poster", p.poster)
         item.put("_mtime", now)

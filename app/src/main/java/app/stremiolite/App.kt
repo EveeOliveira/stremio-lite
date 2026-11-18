@@ -3,6 +3,7 @@ package app.stremiolite
 import android.app.Application
 import app.stremiolite.data.Repo
 import app.stremiolite.net.Http
+import app.stremiolite.remote.RemoteServer
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
@@ -15,6 +16,7 @@ class App : Application() {
         super.onCreate()
         instance = this
         Repo.init(this)
+        RemoteServer.init(this)
     }
 
     /** Carregador de imagens enxuto: cache pequeno, RGB565, sem crossfade. */

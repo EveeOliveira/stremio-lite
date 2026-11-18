@@ -152,3 +152,21 @@ fun Context.openDetail(m: MetaPreview) {
     startActivity(android.content.Intent(this, DetailActivity::class.java)
         .putExtra("type", m.type).putExtra("id", m.id).putExtra("videoId", m.videoId))
 }
+
+/** Extras comuns da tela de fontes. */
+fun Context.streamsIntent(type: String, metaId: String, videoId: String, name: String, poster: String?, label: String) =
+    android.content.Intent(this, StreamsActivity::class.java)
+        .putExtra("type", type).putExtra("metaId", metaId).putExtra("videoId", videoId)
+        .putExtra("name", name).putExtra("poster", poster).putExtra("label", label)
+
+/**
+ * Card de "Continuar assistindo": vai direto para as fontes, com a pagina do titulo por baixo (Voltar cai nela).
+ * Serie ainda nao aberta neste aparelho passa pela pagina, que carrega a lista de episodios.
+ */
+fun android.app.Activity.openResume(m: MetaPreview) {
+    val videoId = m.videoId ?: return openDetail(m)
+    val label = if (m.type == "movie") m.name else app.stremiolite.data.Repo.episode(m.id, videoId)?.label ?: return openDetail(m)
+    val detail = android.content.Intent(this, DetailActivity::class.java)
+        .putExtra("type", m.type).putExtra("id", m.id).putExtra("videoId", videoId)
+    startActivities(arrayOf(detail, streamsIntent(m.type, m.id, videoId, m.name, m.poster, label)))
+}

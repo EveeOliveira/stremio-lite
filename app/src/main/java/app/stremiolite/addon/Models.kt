@@ -94,6 +94,8 @@ data class MetaPreview(
     val subtitle: String? = null,
     val progress: Float = 0f,
     val videoId: String? = null,
+    /** Veio de "Continuar assistindo": abre direto nas fontes do episodio. */
+    val resume: Boolean = false,
 ) {
     companion object {
         fun parse(j: JSONObject, fallbackType: String) = MetaPreview(
@@ -166,6 +168,9 @@ data class Stream(
     val info: StreamInfo,
 ) {
     val playable get() = url != null && (url.startsWith("http://") || url.startsWith("https://"))
+
+    /** Identifica a mesma fonte entre aberturas (a URL do debrid muda). */
+    val sourceKey get() = filename ?: title.lineSequence().firstOrNull().orEmpty().ifBlank { name }
 
     companion object {
         fun parse(addon: String, j: JSONObject): Stream {
